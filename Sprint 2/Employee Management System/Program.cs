@@ -36,7 +36,15 @@ namespace Employee_Management_System
                         AddEmployeeToOnboarding(company);
                         break;
                     case "2":
-                        company.ProcessOnboarding();
+                        try
+                        {
+                            Employee emp = company.ProcessOnboarding();
+                            Console.WriteLine($"Successfully processed onboarding for {emp.Name} (ID: {emp.Id}) and added to active employees.");
+                        }
+                        catch (InvalidOperationException ex)
+                        {
+                            Console.WriteLine($"Error processing onboarding: {ex.Message}");
+                        }
                         break;
                     case "3":
                         AddDepartment(company);
@@ -55,13 +63,46 @@ namespace Employee_Management_System
                         Console.WriteLine($"Average Salary: {avgSalary:C}");
                         break;
                     case "8":
-                        company.PrintDepartmentReport();
+                        var report = company.GetDepartmentReport();
+                        if (report.Count == 0)
+                        {
+                            Console.WriteLine("No departments found.");
+                        }
+                        else
+                        {
+                            foreach (var item in report)
+                            {
+                                Console.WriteLine($"Department: {item.Department.Name} (ID: {item.Department.Id}) - Active Employees Count: {item.EmployeeCount}");
+                            }
+                        }
                         break;
                     case "9":
-                        company.PrintActionHistory();
+                        var history = company.GetActionHistory();
+                        if (history.Count == 0)
+                        {
+                            Console.WriteLine("No action history available.");
+                        }
+                        else
+                        {
+                            foreach (string action in history)
+                            {
+                                Console.WriteLine($"- {action}");
+                            }
+                        }
                         break;
                     case "10":
-                        company.PrintAllUniqueSkills();
+                        var skills = company.GetUniqueSkills();
+                        if (skills.Count == 0)
+                        {
+                            Console.WriteLine("No skills registered yet.");
+                        }
+                        else
+                        {
+                            foreach (string skill in skills)
+                            {
+                                Console.WriteLine($"- {skill}");
+                            }
+                        }
                         break;
                     case "11":
                         exit = true;
@@ -112,17 +153,16 @@ namespace Employee_Management_System
                 return;
             }
 
-            Employee employee = new Employee
+            try
             {
-                Id = id,
-                Name = name,
-                HireDate = hireDate,
-                DepartmentId = departmentId,
-                Salary = salary
-            };
-
-            company.AddToOnboarding(employee);
-            Console.WriteLine("Employee successfully added to onboarding queue.");
+                Employee employee = new Employee(id, name, hireDate, departmentId, salary);
+                company.AddToOnboarding(employee);
+                Console.WriteLine("Employee successfully added to onboarding queue.");
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
+            {
+                Console.WriteLine($"Error adding employee: {ex.Message}");
+            }
         }
 
         static void AddDepartment(Company company)
@@ -142,14 +182,16 @@ namespace Employee_Management_System
                 return;
             }
 
-            Department department = new Department
+            try
             {
-                Id = id,
-                Name = name
-            };
-
-            company.AddDepartment(department);
-            Console.WriteLine("Department added successfully.");
+                Department department = new Department(id, name);
+                company.AddDepartment(department);
+                Console.WriteLine("Department added successfully.");
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
+            {
+                Console.WriteLine($"Error adding department: {ex.Message}");
+            }
         }
 
         static void RegisterSkillForEmployee(Company company)
@@ -169,7 +211,15 @@ namespace Employee_Management_System
                 return;
             }
 
-            company.RegisterSkill(id, skill);
+            try
+            {
+                company.RegisterSkill(id, skill);
+                Console.WriteLine("Skill registered successfully.");
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is KeyNotFoundException)
+            {
+                Console.WriteLine($"Error registering skill: {ex.Message}");
+            }
         }
 
         static void SearchEmployee(Company company)
@@ -235,7 +285,28 @@ namespace Employee_Management_System
                 Console.WriteLine("Invalid input. Department ID must be an integer.");
                 return;
             }
-            company.DisplayEmployeesByDepartment(id);
+
+            try
+            {
+                Department dept = company.GetDepartmentById(id);
+                List<Employee> list = company.GetEmployeesByDepartment(id);
+                Console.WriteLine($"Employees in Department: {dept.Name} (ID: {dept.Id})");
+                if (list.Count == 0)
+                {
+                    Console.WriteLine("No employees found in this department.");
+                }
+                else
+                {
+                    foreach (Employee emp in list)
+                    {
+                        Console.WriteLine($"- {emp.Name} (ID: {emp.Id}, Salary: {emp.Salary:C})");
+                    }
+                }
+            }
+            catch (KeyNotFoundException ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
         }
 
         static void DisplayEmployeeDetails(Employee emp)

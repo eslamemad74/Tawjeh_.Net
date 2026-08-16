@@ -6,45 +6,87 @@ namespace Employee_Management_System.Services
 {
     public class Company
     {
-        public List<Employee> Employees { get; set; } = new List<Employee>();
-        public Dictionary<int, Department> Departments { get; set; } = new Dictionary<int, Department>();
-        public Queue<Employee> OnboardingQueue { get; set; } = new Queue<Employee>();
-        public Stack<string> ActionHistory { get; set; } = new Stack<string>();
-        public HashSet<string> UniqueSkills { get; set; } = new HashSet<string>();
+        private readonly List<Employee> _employees = new List<Employee>();
+        private readonly Dictionary<int, Department> _departments = new Dictionary<int, Department>();
+        private readonly Queue<Employee> _onboardingQueue = new Queue<Employee>();
+        private readonly Stack<string> _actionHistory = new Stack<string>();
+        private readonly HashSet<string> _uniqueSkills = new HashSet<string>();
 
         public void AddToOnboarding(Employee employee)
         {
-            OnboardingQueue.Enqueue(employee);
-            ActionHistory.Push($"Added employee {employee.Name} (ID: {employee.Id}) to onboarding queue.");
+            if (employee == null)
+                throw new ArgumentNullException(nameof(employee));
+
+            // Validate duplicate employee ID in active list
+            foreach (var emp in _employees)
+            {
+                if (emp.Id == employee.Id)
+                {
+                    throw new InvalidOperationException($"Employee ID {employee.Id} is already in use by an active employee.");
+                }
+            }
+
+            // Validate duplicate employee ID in onboarding queue
+            foreach (var emp in _onboardingQueue)
+            {
+                if (emp.Id == employee.Id)
+                {
+                    throw new InvalidOperationException($"Employee ID {employee.Id} is already in the onboarding queue.");
+                }
+            }
+
+            // Validate department existence
+            if (!_departments.ContainsKey(employee.DepartmentId))
+            {
+                throw new InvalidOperationException($"Department ID {employee.DepartmentId} does not exist. Cannot onboard employee.");
+            }
+
+            _onboardingQueue.Enqueue(employee);
+            _actionHistory.Push($"Added employee {employee.Name} (ID: {employee.Id}) to onboarding queue.");
         }
 
-        public void ProcessOnboarding()
+        public Employee ProcessOnboarding()
         {
-            if (OnboardingQueue.Count == 0)
+            if (_onboardingQueue.Count == 0)
             {
-                Console.WriteLine("No employees in onboarding queue.");
-                return;
+                throw new InvalidOperationException("No employees in onboarding queue.");
             }
-            Employee emp = OnboardingQueue.Dequeue();
-            Employees.Add(emp);
-            ActionHistory.Push($"Processed onboarding for {emp.Name} (ID: {emp.Id}) and added to active employees.");
+            Employee emp = _onboardingQueue.Dequeue();
+            _employees.Add(emp);
+            _actionHistory.Push($"Processed onboarding for {emp.Name} (ID: {emp.Id}) and added to active employees.");
+            return emp;
         }
 
         public void AddDepartment(Department department)
         {
-            if (Departments.ContainsKey(department.Id))
+            if (department == null)
+                throw new ArgumentNullException(nameof(department));
+
+            if (_departments.ContainsKey(department.Id))
             {
-                Console.WriteLine("Department ID already exists.");
-                return;
+                throw new InvalidOperationException($"Department ID {department.Id} already exists.");
             }
-            Departments.Add(department.Id, department);
-            ActionHistory.Push($"Added department {department.Name} (ID: {department.Id}).");
+
+            // Validate duplicate department names (case-insensitive)
+            foreach (var existingDept in _departments.Values)
+            {
+                if (existingDept.Name.Equals(department.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException($"Department name '{department.Name}' already exists.");
+                }
+            }
+
+            _departments.Add(department.Id, department);
+            _actionHistory.Push($"Added department {department.Name} (ID: {department.Id}).");
         }
 
         public void RegisterSkill(int employeeId, string skill)
         {
+            if (string.IsNullOrWhiteSpace(skill))
+                throw new ArgumentException("Skill cannot be empty or whitespace.", nameof(skill));
+
             Employee? target = null;
-            foreach (Employee emp in Employees)
+            foreach (Employee emp in _employees)
             {
                 if (emp.Id == employeeId)
                 {
@@ -55,22 +97,19 @@ namespace Employee_Management_System.Services
 
             if (target != null)
             {
-                if (!target.Skills.Contains(skill))
-                {
-                    target.Skills.Add(skill);
-                }
-                UniqueSkills.Add(skill);
-                ActionHistory.Push($"Registered skill '{skill}' for employee {target.Name} (ID: {target.Id}).");
+                target.AddSkill(skill);
+                _uniqueSkills.Add(skill);
+                _actionHistory.Push($"Registered skill '{skill}' for employee {target.Name} (ID: {target.Id}).");
             }
             else
             {
-                Console.WriteLine("Employee not found in active employees.");
+                throw new KeyNotFoundException($"Employee with ID {employeeId} not found in active employees.");
             }
         }
 
         public Employee? FindEmployeeById(int id)
         {
-            foreach (Employee emp in Employees)
+            foreach (Employee emp in _employees)
             {
                 if (emp.Id == id)
                 {
@@ -83,7 +122,7 @@ namespace Employee_Management_System.Services
         public List<Employee> FindEmployeesByName(string name)
         {
             List<Employee> matches = new List<Employee>();
-            foreach (Employee emp in Employees)
+            foreach (Employee emp in _employees)
             {
                 if (emp.Name != null && emp.Name.Contains(name, StringComparison.OrdinalIgnoreCase))
                 {
@@ -93,127 +132,114 @@ namespace Employee_Management_System.Services
             return matches;
         }
 
-        public void DisplayEmployeesByDepartment(int departmentId)
+        public Department GetDepartmentById(int departmentId)
         {
-            if (Departments.TryGetValue(departmentId, out Department? dept))
+            if (_departments.TryGetValue(departmentId, out Department? dept))
             {
-                // In C# net8.0, TryGetValue guarantees dept is not null when returning true.
-                Console.WriteLine($"Employees in Department: {dept!.Name} (ID: {dept.Id})");
-                bool found = false;
-                foreach (Employee emp in Employees)
+                return dept;
+            }
+            throw new KeyNotFoundException($"Department ID {departmentId} not found.");
+        }
+
+        public List<Employee> GetEmployeesByDepartment(int departmentId)
+        {
+            if (!_departments.ContainsKey(departmentId))
+            {
+                throw new KeyNotFoundException($"Department ID {departmentId} not found.");
+            }
+
+            List<Employee> list = new List<Employee>();
+            foreach (Employee emp in _employees)
+            {
+                if (emp.DepartmentId == departmentId)
                 {
-                    if (emp.DepartmentId == departmentId)
-                    {
-                        Console.WriteLine($"- {emp.Name} (ID: {emp.Id}, Salary: {emp.Salary:C})");
-                        found = true;
-                    }
-                }
-                if (!found)
-                {
-                    Console.WriteLine("No employees found in this department.");
+                    list.Add(emp);
                 }
             }
-            else
-            {
-                Console.WriteLine("Department not found.");
-            }
+            return list;
         }
 
         public decimal CalculateAverageSalary()
         {
-            if (Employees.Count == 0)
+            if (_employees.Count == 0)
             {
                 return 0;
             }
             decimal sum = 0;
-            foreach (Employee emp in Employees)
+            foreach (Employee emp in _employees)
             {
                 sum += emp.Salary;
             }
-            return sum / Employees.Count;
+            return sum / _employees.Count;
         }
 
-        public void PrintDepartmentReport()
+        public List<(Department Department, int EmployeeCount)> GetDepartmentReport()
         {
-            foreach (var kvp in Departments)
+            var report = new List<(Department Department, int EmployeeCount)>();
+            foreach (var kvp in _departments)
             {
                 Department dept = kvp.Value;
                 int count = 0;
-                foreach (Employee emp in Employees)
+                foreach (Employee emp in _employees)
                 {
                     if (emp.DepartmentId == dept.Id)
                     {
                         count++;
                     }
                 }
-                Console.WriteLine($"Department: {dept.Name} (ID: {dept.Id}) - Active Employees Count: {count}");
+                report.Add((dept, count));
             }
+            return report;
         }
 
-        public void PrintActionHistory()
+        public IReadOnlyCollection<string> GetActionHistory()
         {
-            if (ActionHistory.Count == 0)
-            {
-                Console.WriteLine("No action history available.");
-                return;
-            }
-            foreach (string action in ActionHistory)
-            {
-                Console.WriteLine($"- {action}");
-            }
+            return _actionHistory;
         }
 
-        public void PrintAllUniqueSkills()
+        public IReadOnlyCollection<string> GetUniqueSkills()
         {
-            if (UniqueSkills.Count == 0)
-            {
-                Console.WriteLine("No skills registered yet.");
-                return;
-            }
-            foreach (string skill in UniqueSkills)
-            {
-                Console.WriteLine($"- {skill}");
-            }
+            return _uniqueSkills;
         }
 
         public void SeedData()
         {
-            Department dept1 = new Department { Id = 1, Name = "IT" };
-            Department dept2 = new Department { Id = 2, Name = "HR" };
-            Department dept3 = new Department { Id = 3, Name = "Finance" };
+            Department dept1 = new Department(1, "IT");
+            Department dept2 = new Department(2, "HR");
+            Department dept3 = new Department(3, "Finance");
 
-            Departments.Add(dept1.Id, dept1);
-            Departments.Add(dept2.Id, dept2);
-            Departments.Add(dept3.Id, dept3);
+            _departments.Add(dept1.Id, dept1);
+            _departments.Add(dept2.Id, dept2);
+            _departments.Add(dept3.Id, dept3);
 
-            Employee emp1 = new Employee { Id = 101, Name = "Alice Johnson", HireDate = new DateTime(2024, 1, 15), DepartmentId = 1, Salary = 6000m };
-            Employee emp2 = new Employee { Id = 102, Name = "Bob Smith", HireDate = new DateTime(2023, 6, 20), DepartmentId = 1, Salary = 8000m };
-            Employee emp3 = new Employee { Id = 103, Name = "Charlie Brown", HireDate = new DateTime(2025, 2, 10), DepartmentId = 2, Salary = 5000m };
+            Employee emp1 = new Employee(101, "Alice Johnson", new DateTime(2024, 1, 15), 1, 6000m);
+            Employee emp2 = new Employee(102, "Bob Smith", new DateTime(2023, 6, 20), 1, 8000m);
+            Employee emp3 = new Employee(103, "Charlie Brown", new DateTime(2025, 2, 10), 2, 5000m);
 
-            Employees.Add(emp1);
-            Employees.Add(emp2);
-            Employees.Add(emp3);
+            _employees.Add(emp1);
+            _employees.Add(emp2);
+            _employees.Add(emp3);
 
-            Employee onboarding1 = new Employee { Id = 201, Name = "David Miller", HireDate = new DateTime(2026, 8, 1), DepartmentId = 1, Salary = 5500m };
-            Employee onboarding2 = new Employee { Id = 202, Name = "Eva Green", HireDate = new DateTime(2026, 8, 15), DepartmentId = 3, Salary = 6200m };
+            Employee onboarding1 = new Employee(201, "David Miller", new DateTime(2026, 8, 1), 1, 5500m);
+            Employee onboarding2 = new Employee(202, "Eva Green", new DateTime(2026, 8, 15), 3, 6200m);
 
-            OnboardingQueue.Enqueue(onboarding1);
-            OnboardingQueue.Enqueue(onboarding2);
+            _onboardingQueue.Enqueue(onboarding1);
+            _onboardingQueue.Enqueue(onboarding2);
 
-            UniqueSkills.Add("C#");
-            UniqueSkills.Add("SQL");
-            UniqueSkills.Add("Recruiting");
+            _uniqueSkills.Add("C#");
+            _uniqueSkills.Add("SQL");
+            _uniqueSkills.Add("Recruiting");
 
-            emp1.Skills.Add("C#");
-            emp1.Skills.Add("SQL");
-            emp2.Skills.Add("C#");
-            emp3.Skills.Add("Recruiting");
+            emp1.AddSkill("C#");
+            emp1.AddSkill("SQL");
+            emp2.AddSkill("C#");
+            emp3.AddSkill("Recruiting");
 
-            ActionHistory.Push("System Initialized");
-            ActionHistory.Push("Seeded initial departments: IT, HR, Finance.");
-            ActionHistory.Push("Seeded initial active employees: Alice, Bob, Charlie.");
-            ActionHistory.Push("Seeded onboarding queue: David, Eva.");
-            ActionHistory.Push("Seeded skills: C#, SQL, Recruiting.");
+            _actionHistory.Push("System Initialized");
+            _actionHistory.Push("Seeded initial departments: IT, HR, Finance.");
+            _actionHistory.Push("Seeded initial active employees: Alice, Bob, Charlie.");
+            _actionHistory.Push("Seeded onboarding queue: David, Eva.");
+            _actionHistory.Push("Seeded skills: C#, SQL, Recruiting.");
         }
     }
 }
