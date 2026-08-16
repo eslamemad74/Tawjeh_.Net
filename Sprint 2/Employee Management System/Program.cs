@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using Employee_Management_System.Models;
 using Employee_Management_System.Services;
+using Employee_Management_System.Common;
+using Employee_Management_System.Delegates;
+using Employee_Management_System.Events;
 
 namespace Employee_Management_System
 {
@@ -10,6 +13,20 @@ namespace Employee_Management_System
         static void Main(string[] args)
         {
             Company company = new Company();
+
+            // Subscribe to Lifecycle Events
+            company.EmployeeOnboarded += (sender, e) =>
+            {
+                Console.WriteLine($"\n[EVENT NOTIFICATION] Employee Onboarded successfully!");
+                Console.WriteLine($"Name: {e.Employee.Name}, ID: {e.Employee.Id}, Department ID: {e.Employee.DepartmentId}");
+            };
+
+            company.EmployeePromoted += (sender, e) =>
+            {
+                Console.WriteLine($"\n[EVENT NOTIFICATION] Employee Promoted to Manager successfully!");
+                Console.WriteLine($"Name: {e.Employee.Name}, ID: {e.Employee.Id}, New Salary: {e.Employee.Salary:C}");
+            };
+
             company.SeedData();
 
             bool exit = false;
@@ -19,15 +36,17 @@ namespace Employee_Management_System
                 Console.WriteLine("1. Add Employee to Onboarding Queue");
                 Console.WriteLine("2. Process Onboarding (FIFO)");
                 Console.WriteLine("3. Add Department");
-                Console.WriteLine("4. Register Skill for Employee");
-                Console.WriteLine("5. Search Employee by ID or Name");
-                Console.WriteLine("6. Display Employees of a Specific Department");
-                Console.WriteLine("7. Calculate Average Salary");
-                Console.WriteLine("8. Display Department Employee Counts");
-                Console.WriteLine("9. Display Action History");
-                Console.WriteLine("10. Display All Unique Skills");
-                Console.WriteLine("11. Exit");
-                Console.Write("Enter your choice (1-11): ");
+                Console.WriteLine("4. Promote Employee to Manager");
+                Console.WriteLine("5. Register Skill for Employee");
+                Console.WriteLine("6. Search Employee by ID or Name");
+                Console.WriteLine("7. Filter Employees (using Delegates & Lambdas)");
+                Console.WriteLine("8. Display Employees of a Specific Department");
+                Console.WriteLine("9. Calculate Average Salary");
+                Console.WriteLine("10. Display Department Employee Counts");
+                Console.WriteLine("11. Display Action History");
+                Console.WriteLine("12. Display All Unique Skills");
+                Console.WriteLine("13. Exit");
+                Console.Write("Enter your choice (1-13): ");
 
                 string choice = Console.ReadLine() ?? "";
                 switch (choice)
@@ -36,33 +55,39 @@ namespace Employee_Management_System
                         AddEmployeeToOnboarding(company);
                         break;
                     case "2":
-                        try
+                        var processResult = company.ProcessOnboarding();
+                        if (processResult.IsSuccess)
                         {
-                            Employee emp = company.ProcessOnboarding();
-                            Console.WriteLine($"Successfully processed onboarding for {emp.Name} (ID: {emp.Id}) and added to active employees.");
+                            Console.WriteLine(processResult.Message);
                         }
-                        catch (InvalidOperationException ex)
+                        else
                         {
-                            Console.WriteLine($"Error processing onboarding: {ex.Message}");
+                            Console.WriteLine($"Error processing onboarding: {processResult.Message}");
                         }
                         break;
                     case "3":
                         AddDepartment(company);
                         break;
                     case "4":
-                        RegisterSkillForEmployee(company);
+                        PromoteEmployeeToManager(company);
                         break;
                     case "5":
-                        SearchEmployee(company);
+                        RegisterSkillForEmployee(company);
                         break;
                     case "6":
-                        DisplayEmployeesByDepartment(company);
+                        SearchEmployee(company);
                         break;
                     case "7":
+                        FilterEmployees(company);
+                        break;
+                    case "8":
+                        DisplayEmployeesByDepartment(company);
+                        break;
+                    case "9":
                         decimal avgSalary = company.CalculateAverageSalary();
                         Console.WriteLine($"Average Salary: {avgSalary:C}");
                         break;
-                    case "8":
+                    case "10":
                         var report = company.GetDepartmentReport();
                         if (report.Count == 0)
                         {
@@ -76,7 +101,7 @@ namespace Employee_Management_System
                             }
                         }
                         break;
-                    case "9":
+                    case "11":
                         var history = company.GetActionHistory();
                         if (history.Count == 0)
                         {
@@ -90,7 +115,7 @@ namespace Employee_Management_System
                             }
                         }
                         break;
-                    case "10":
+                    case "12":
                         var skills = company.GetUniqueSkills();
                         if (skills.Count == 0)
                         {
@@ -104,12 +129,12 @@ namespace Employee_Management_System
                             }
                         }
                         break;
-                    case "11":
+                    case "13":
                         exit = true;
                         Console.WriteLine("Exiting program. Goodbye!");
                         break;
                     default:
-                        Console.WriteLine("Invalid choice. Please enter a number between 1 and 11.");
+                        Console.WriteLine("Invalid choice. Please enter a number between 1 and 13.");
                         break;
                 }
             } while (!exit);
@@ -132,7 +157,7 @@ namespace Employee_Management_System
                 return;
             }
 
-            Console.Write("Enter Hire Date: ");
+            Console.Write("Enter Hire Date (yyyy-MM-dd): ");
             if (!DateTime.TryParse(Console.ReadLine() ?? "", out DateTime hireDate))
             {
                 Console.WriteLine("Invalid input. Hire Date is not a valid date.");
@@ -156,12 +181,19 @@ namespace Employee_Management_System
             try
             {
                 Employee employee = new Employee(id, name, hireDate, departmentId, salary);
-                company.AddToOnboarding(employee);
-                Console.WriteLine("Employee successfully added to onboarding queue.");
+                var result = company.AddToOnboarding(employee);
+                if (result.IsSuccess)
+                {
+                    Console.WriteLine(result.Message);
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to add employee: {result.Message}");
+                }
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
+            catch (ArgumentException ex)
             {
-                Console.WriteLine($"Error adding employee: {ex.Message}");
+                Console.WriteLine($"Validation Error: {ex.Message}");
             }
         }
 
@@ -185,12 +217,39 @@ namespace Employee_Management_System
             try
             {
                 Department department = new Department(id, name);
-                company.AddDepartment(department);
-                Console.WriteLine("Department added successfully.");
+                var result = company.AddDepartment(department);
+                if (result.IsSuccess)
+                {
+                    Console.WriteLine(result.Message);
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to add department: {result.Message}");
+                }
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException)
+            catch (ArgumentException ex)
             {
-                Console.WriteLine($"Error adding department: {ex.Message}");
+                Console.WriteLine($"Validation Error: {ex.Message}");
+            }
+        }
+
+        static void PromoteEmployeeToManager(Company company)
+        {
+            Console.Write("Enter Employee ID to promote (integer): ");
+            if (!int.TryParse(Console.ReadLine() ?? "", out int id))
+            {
+                Console.WriteLine("Invalid input. ID must be an integer.");
+                return;
+            }
+
+            var result = company.PromoteToManager(id);
+            if (result.IsSuccess)
+            {
+                Console.WriteLine(result.Message);
+            }
+            else
+            {
+                Console.WriteLine($"Promotion failed: {result.Message}");
             }
         }
 
@@ -274,6 +333,47 @@ namespace Employee_Management_System
             else
             {
                 Console.WriteLine("Invalid choice.");
+            }
+        }
+
+        static void FilterEmployees(Company company)
+        {
+            Console.WriteLine("Choose filter condition:");
+            Console.WriteLine("1. Managers Only");
+            Console.WriteLine("2. High Salary Employees (Salary > 7,000)");
+            Console.WriteLine("3. Hired in 2024 or later");
+            Console.Write("Enter choice (1-3): ");
+            string filterChoice = Console.ReadLine() ?? "";
+
+            EmployeeFilter? filter = null;
+            switch (filterChoice)
+            {
+                case "1":
+                    filter = emp => emp is Manager;
+                    break;
+                case "2":
+                    filter = emp => emp.Salary > 7000m;
+                    break;
+                case "3":
+                    filter = emp => emp.HireDate.Year >= 2024;
+                    break;
+                default:
+                    Console.WriteLine("Invalid choice.");
+                    return;
+            }
+
+            List<Employee> results = company.FilterEmployees(filter);
+            if (results.Count > 0)
+            {
+                Console.WriteLine("\nFiltered Employees:");
+                foreach (Employee emp in results)
+                {
+                    DisplayEmployeeDetails(emp);
+                }
+            }
+            else
+            {
+                Console.WriteLine("No employees matched the filter condition.");
             }
         }
 

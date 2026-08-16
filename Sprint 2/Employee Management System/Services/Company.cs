@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Employee_Management_System.Models;
+using Employee_Management_System.Common;
+using Employee_Management_System.Delegates;
+using Employee_Management_System.Events;
 
 namespace Employee_Management_System.Services
 {
@@ -12,7 +15,11 @@ namespace Employee_Management_System.Services
         private readonly Stack<string> _actionHistory = new Stack<string>();
         private readonly HashSet<string> _uniqueSkills = new HashSet<string>();
 
-        public void AddToOnboarding(Employee employee)
+        // Lifecycle Events
+        public event EventHandler<EmployeeEventArgs>? EmployeeOnboarded;
+        public event EventHandler<EmployeeEventArgs>? EmployeePromoted;
+
+        public Result<Employee> AddToOnboarding(Employee employee)
         {
             if (employee == null)
                 throw new ArgumentNullException(nameof(employee));
@@ -22,7 +29,7 @@ namespace Employee_Management_System.Services
             {
                 if (emp.Id == employee.Id)
                 {
-                    throw new InvalidOperationException($"Employee ID {employee.Id} is already in use by an active employee.");
+                    return Result<Employee>.Failure($"Employee ID {employee.Id} is already in use by an active employee.");
                 }
             }
 
@@ -31,40 +38,45 @@ namespace Employee_Management_System.Services
             {
                 if (emp.Id == employee.Id)
                 {
-                    throw new InvalidOperationException($"Employee ID {employee.Id} is already in the onboarding queue.");
+                    return Result<Employee>.Failure($"Employee ID {employee.Id} is already in the onboarding queue.");
                 }
             }
 
             // Validate department existence
             if (!_departments.ContainsKey(employee.DepartmentId))
             {
-                throw new InvalidOperationException($"Department ID {employee.DepartmentId} does not exist. Cannot onboard employee.");
+                return Result<Employee>.Failure($"Department ID {employee.DepartmentId} does not exist. Cannot onboard employee.");
             }
 
             _onboardingQueue.Enqueue(employee);
             _actionHistory.Push($"Added employee {employee.Name} (ID: {employee.Id}) to onboarding queue.");
+            return Result<Employee>.Success(employee, $"Successfully added {employee.Name} to onboarding queue.");
         }
 
-        public Employee ProcessOnboarding()
+        public Result<Employee> ProcessOnboarding()
         {
             if (_onboardingQueue.Count == 0)
             {
-                throw new InvalidOperationException("No employees in onboarding queue.");
+                return Result<Employee>.Failure("No employees in onboarding queue.");
             }
             Employee emp = _onboardingQueue.Dequeue();
             _employees.Add(emp);
             _actionHistory.Push($"Processed onboarding for {emp.Name} (ID: {emp.Id}) and added to active employees.");
-            return emp;
+            
+            // Raise Event
+            EmployeeOnboarded?.Invoke(this, new EmployeeEventArgs(emp));
+            
+            return Result<Employee>.Success(emp, $"Successfully processed onboarding for {emp.Name} (ID: {emp.Id}).");
         }
 
-        public void AddDepartment(Department department)
+        public Result<Department> AddDepartment(Department department)
         {
             if (department == null)
                 throw new ArgumentNullException(nameof(department));
 
             if (_departments.ContainsKey(department.Id))
             {
-                throw new InvalidOperationException($"Department ID {department.Id} already exists.");
+                return Result<Department>.Failure($"Department ID {department.Id} already exists.");
             }
 
             // Validate duplicate department names (case-insensitive)
@@ -72,12 +84,63 @@ namespace Employee_Management_System.Services
             {
                 if (existingDept.Name.Equals(department.Name, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidOperationException($"Department name '{department.Name}' already exists.");
+                    return Result<Department>.Failure($"Department name '{department.Name}' already exists.");
                 }
             }
 
             _departments.Add(department.Id, department);
             _actionHistory.Push($"Added department {department.Name} (ID: {department.Id}).");
+            return Result<Department>.Success(department, $"Successfully added department {department.Name}.");
+        }
+
+        public Result<Manager> PromoteToManager(int employeeId)
+        {
+            Employee? target = FindEmployeeById(employeeId);
+            if (target == null)
+            {
+                return Result<Manager>.Failure($"Employee with ID {employeeId} not found in active employees.");
+            }
+
+            if (target is Manager)
+            {
+                return Result<Manager>.Failure($"Employee {target.Name} (ID: {employeeId}) is already a Manager.");
+            }
+
+            // Create Manager instance
+            Manager manager = new Manager(target.Id, target.Name, target.HireDate, target.DepartmentId, target.Salary);
+            
+            // Copy skills
+            foreach (string skill in target.Skills)
+            {
+                manager.AddSkill(skill);
+            }
+
+            // Replace in _employees
+            int index = _employees.IndexOf(target);
+            _employees[index] = manager;
+
+            _actionHistory.Push($"Promoted {target.Name} (ID: {target.Id}) to Manager.");
+
+            // Raise Event
+            EmployeePromoted?.Invoke(this, new EmployeeEventArgs(manager));
+
+            return Result<Manager>.Success(manager, $"Successfully promoted {target.Name} (ID: {target.Id}) to Manager.");
+        }
+
+        public List<Employee> FilterEmployees(EmployeeFilter filter)
+        {
+            if (filter == null)
+                throw new ArgumentNullException(nameof(filter));
+
+            List<Employee> filteredList = new List<Employee>();
+            foreach (Employee emp in _employees)
+            {
+                if (filter(emp))
+                {
+                    filteredList.Add(emp);
+                }
+            }
+            return filteredList;
         }
 
         public void RegisterSkill(int employeeId, string skill)
